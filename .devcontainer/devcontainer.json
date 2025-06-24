@@ -16,7 +16,8 @@
         "ms-python.python",
         "hashicorp.terraform",
         "amazonwebservices.aws-toolkit",
-        "esbenp.prettier-vscode"
+        "esbenp.prettier-vscode",
+        "ms-dotnettools.csdevkit"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "pwsh"
