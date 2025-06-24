@@ -1,0 +1,26 @@
+{
+  "name": "My Dev Container",
+  "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+  "features": {
+    "docker": "latest",
+    "terraform": "latest",
+    "python": "latest",
+    "aws-cli": "latest",
+    "curl": "latest",
+    "powershell": "latest" // Add this line
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csharp",
+        "ms-python.python",
+        "hashicorp.terraform",
+        "amazonwebservices.aws-toolkit",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "pwsh"
+      }
+    }
+  }
+}
