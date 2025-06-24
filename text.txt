@@ -1,0 +1,22 @@
+sports-handbook-qa/
+├── infrastructure/
+│   ├── cloudformation/
+│   │   ├── opensearch.yaml
+│   │   ├── lambda-functions.yaml
+│   │   └── s3-sns.yaml
+│   └── terraform/ (alternative)
+├── lambda-ingestion/ (Python)
+│   ├── src/
+│   │   ├── handler.py
+│   │   ├── pdf_processor.py
+│   │   └── opensearch_client.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── lambda-qa-dotnet/
+│   ├── src/
+│   │   ├── Function.cs
+│   │   ├── Models/
+│   │   ├── Services/
+│   │   └── sports-handbook-qa.csproj
+│   └── Dockerfile
+└── README.md
