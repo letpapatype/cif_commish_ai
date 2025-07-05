@@ -1,338 +1,260 @@
 terraform {
-  required_version = ">= 1.0"
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
+    azurerm = {
+      source = "hashicorp/azurerm"
+      version = "4.35.0"
     }
   }
 }
 
-provider "aws" {
-  region = var.aws_region
+provider "azurerm" {
+  # Configuration options
 }
 
-# Variables
-variable "aws_region" {
-  description = "AWS region"
+terraform {
+  required_providers {
+    azurerm = "~> 4.0"
+    random  = "~> 3.6"
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+variable "region" {
+  type    = string
+  default = "westeurope"
+}
+variable "cidr" {
   type        = string
-  default     = "us-east-1"
+  default     = "10.179.0.0/20"
+  description = "Network range for created virtual network."
 }
 
-variable "project_name" {
-  description = "Project name for resource naming"
-  type        = string
-  default     = "sports-handbook-qa"
+variable "no_public_ip" {
+  type        = bool
+  default     = true
+  description = "Defines whether Secure Cluster Connectivity (No Public IP) should be enabled."
 }
 
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-}
-
-# S3 Bucket for PDF storage
-resource "aws_s3_bucket" "pdf_storage" {
-  bucket = "${var.project_name}-pdfs-${var.environment}-${random_string.bucket_suffix.result}"
-}
-
-resource "random_string" "bucket_suffix" {
-  length  = 8
+resource "random_string" "naming" {
   special = false
   upper   = false
+  length  = 6
 }
 
-resource "aws_s3_bucket_notification" "pdf_upload_notification" {
-  bucket = aws_s3_bucket.pdf_storage.id
+data "azurerm_client_config" "current" {
+}
 
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.pdf_ingestion.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_suffix       = ".pdf"
+data "external" "me" {
+  program = ["az", "account", "show", "--query", "user"]
+}
+
+locals {
+  prefix = "databricksdemo${random_string.naming.result}"
+  tags = {
+    Environment = "Demo"
+    Owner       = lookup(data.external.me.result, "name")
   }
 }
 
-# OpenSearch Domain
-resource "aws_opensearch_domain" "handbook_search" {
-  domain_name    = "${var.project_name}-${var.environment}"
-  engine_version = "OpenSearch_2.3"
+resource "azurerm_resource_group" "this" {
+  name     = "${local.prefix}-rg"
+  location = var.region
+  tags     = local.tags
+}
 
-  cluster_config {
-    instance_type  = "t3.small.search"
-    instance_count = 1
+resource "azurerm_storage_account" "example" {
+  name                     = "examplestoracc"
+  resource_group_name      = azurerm_resource_group.example.name
+  location                 = azurerm_resource_group.example.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+resource "azurerm_storage_container" "example" {
+  name                  = "content"
+  storage_account_id    = azurerm_storage_account.example.id
+  container_access_type = "private"
+}
+
+resource "azurerm_storage_blob" "example" {
+  name                   = "my-awesome-content.zip"
+  storage_account_name   = azurerm_storage_account.example.name
+  storage_container_name = azurerm_storage_container.example.name
+  type                   = "Block"
+  source                 = "some-local-file.zip"
+}
+
+resource "azurerm_storage_queue" "example" {
+  name                 = "example-astq"
+  storage_account_name = azurerm_storage_account.example.name
+}
+
+resource "azurerm_eventgrid_event_subscription" "example" {
+  name  = "example-aees"
+  scope = azurerm_resource_group.example.id
+
+  storage_queue_endpoint {
+    storage_account_id = azurerm_storage_account.example.id
+    queue_name         = azurerm_storage_queue.example.name
   }
-
-  ebs_options {
-    ebs_enabled = true
-    volume_type = "gp3"
-    volume_size = 20
-  }
-
-  encrypt_at_rest {
-    enabled = true
-  }
-
-  domain_endpoint_options {
-    enforce_https = true
-  }
-
-  access_policies = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "es:*"
-        Effect = "Allow"
-        Resource = "arn:aws:es:${var.aws_region}:${data.aws_caller_identity.current.account_id}:domain/${var.project_name}-${var.environment}/*"
-        Principal = {
-          AWS = [
-            aws_iam_role.lambda_ingestion_role.arn,
-            aws_iam_role.lambda_qa_role.arn
-          ]
-        }
-      }
-    ]
-  })
 }
 
-# SNS Topic for Q&A responses
-resource "aws_sns_topic" "qa_responses" {
-  name = "${var.project_name}-responses-${var.environment}"
+resource "azurerm_virtual_network" "this" {
+  name                = "${local.prefix}-vnet"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  address_space       = [var.cidr]
+  tags                = local.tags
 }
 
-# IAM Role for PDF Ingestion Lambda
-resource "aws_iam_role" "lambda_ingestion_role" {
-  name = "${var.project_name}-ingestion-role-${var.environment}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
+resource "azurerm_network_security_group" "this" {
+  name                = "${local.prefix}-nsg"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  tags                = local.tags
 }
 
-resource "aws_iam_role_policy" "lambda_ingestion_policy" {
-  name = "${var.project_name}-ingestion-policy-${var.environment}"
-  role = aws_iam_role.lambda_ingestion_role.id
+resource "azurerm_subnet" "public" {
+  name                 = "${local.prefix}-public"
+  resource_group_name  = azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [cidrsubnet(var.cidr, 3, 0)]
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:*:*:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject"
-        ]
-        Resource = "${aws_s3_bucket.pdf_storage.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "es:ESHttpPost",
-          "es:ESHttpPut",
-          "es:ESHttpGet"
-        ]
-        Resource = "${aws_opensearch_domain.handbook_search.arn}/*"
-      }
-    ]
-  })
-}
-
-# IAM Role for Q&A Lambda
-resource "aws_iam_role" "lambda_qa_role" {
-  name = "${var.project_name}-qa-role-${var.environment}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "lambda_qa_policy" {
-  name = "${var.project_name}-qa-policy-${var.environment}"
-  role = aws_iam_role.lambda_qa_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:*:*:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "es:ESHttpPost",
-          "es:ESHttpGet"
-        ]
-        Resource = "${aws_opensearch_domain.handbook_search.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sns:Publish"
-        ]
-        Resource = aws_sns_topic.qa_responses.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "bedrock:InvokeModel"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-# Python PDF Ingestion Lambda
-resource "aws_lambda_function" "pdf_ingestion" {
-  filename         = "pdf-ingestion-lambda.zip"
-  function_name    = "${var.project_name}-pdf-ingestion-${var.environment}"
-  role            = aws_iam_role.lambda_ingestion_role.arn
-  handler         = "handler.lambda_handler"
-  source_code_hash = data.archive_file.pdf_ingestion_zip.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 300
-  memory_size     = 1024
-
-  environment {
-    variables = {
-      OPENSEARCH_ENDPOINT = aws_opensearch_domain.handbook_search.endpoint
-      AWS_REGION         = var.aws_region
+  delegation {
+    name = "databricks"
+    service_delegation {
+      name = "Microsoft.Databricks/workspaces"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/action",
+        "Microsoft.Network/virtualNetworks/subnets/prepareNetworkPolicies/action",
+        "Microsoft.Network/virtualNetworks/subnets/unprepareNetworkPolicies/action"
+      ]
     }
   }
 }
 
-# .NET Q&A Lambda
-resource "aws_lambda_function" "qa_lambda" {
-  filename         = "qa-lambda.zip"
-  function_name    = "${var.project_name}-qa-${var.environment}"
-  role            = aws_iam_role.lambda_qa_role.arn
-  handler         = "QALambda::QALambda.Function::FunctionHandler"
-  source_code_hash = data.archive_file.qa_lambda_zip.output_base64sha256
-  runtime         = "dotnet8"
-  timeout         = 30
-  memory_size     = 512
+resource "azurerm_subnet_network_security_group_association" "public" {
+  subnet_id                 = azurerm_subnet.public.id
+  network_security_group_id = azurerm_network_security_group.this.id
+}
 
-  environment {
-    variables = {
-      OPENSEARCH_ENDPOINT = aws_opensearch_domain.handbook_search.endpoint
-      SNS_TOPIC_ARN      = aws_sns_topic.qa_responses.arn
-      AWS_REGION         = var.aws_region
+resource "azurerm_subnet" "private" {
+  name                 = "${local.prefix}-private"
+  resource_group_name  = azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [cidrsubnet(var.cidr, 3, 1)]
+
+  delegation {
+    name = "databricks"
+    service_delegation {
+      name = "Microsoft.Databricks/workspaces"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/action",
+        "Microsoft.Network/virtualNetworks/subnets/prepareNetworkPolicies/action",
+        "Microsoft.Network/virtualNetworks/subnets/unprepareNetworkPolicies/action"
+      ]
     }
   }
 }
 
-# API Gateway for Q&A
-resource "aws_api_gateway_rest_api" "qa_api" {
-  name        = "${var.project_name}-api-${var.environment}"
-  description = "API for sports handbook Q&A"
+resource "azurerm_subnet_network_security_group_association" "private" {
+  subnet_id                 = azurerm_subnet.private.id
+  network_security_group_id = azurerm_network_security_group.this.id
 }
 
-resource "aws_api_gateway_resource" "qa_resource" {
-  rest_api_id = aws_api_gateway_rest_api.qa_api.id
-  parent_id   = aws_api_gateway_rest_api.qa_api.root_resource_id
-  path_part   = "ask"
+resource "azurerm_databricks_workspace" "this" {
+  name                        = "${local.prefix}-workspace"
+  resource_group_name         = azurerm_resource_group.this.name
+  location                    = azurerm_resource_group.this.location
+  sku                         = "premium"
+  managed_resource_group_name = "${local.prefix}-workspace-rg"
+  tags                        = local.tags
+
+  custom_parameters {
+    no_public_ip                                         = var.no_public_ip
+    virtual_network_id                                   = azurerm_virtual_network.this.id
+    private_subnet_name                                  = azurerm_subnet.private.name
+    public_subnet_name                                   = azurerm_subnet.public.name
+    public_subnet_network_security_group_association_id  = azurerm_subnet_network_security_group_association.public.id
+    private_subnet_network_security_group_association_id = azurerm_subnet_network_security_group_association.private.id
+  }
 }
 
-resource "aws_api_gateway_method" "qa_method" {
-  rest_api_id   = aws_api_gateway_rest_api.qa_api.id
-  resource_id   = aws_api_gateway_resource.qa_resource.id
-  http_method   = "POST"
-  authorization = "NONE"
+data "databricks_node_type" "smallest" {
+  local_disk = true
 }
 
-resource "aws_api_gateway_integration" "qa_integration" {
-  rest_api_id = aws_api_gateway_rest_api.qa_api.id
-  resource_id = aws_api_gateway_resource.qa_resource.id
-  http_method = aws_api_gateway_method.qa_method.http_method
-
-  integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.qa_lambda.invoke_arn
+data "databricks_spark_version" "latest_lts" {
+  long_term_support = true
 }
 
-resource "aws_api_gateway_deployment" "qa_deployment" {
-  depends_on = [aws_api_gateway_integration.qa_integration]
-
-  rest_api_id = aws_api_gateway_rest_api.qa_api.id
-  stage_name  = var.environment
+resource "databricks_cluster" "shared_autoscaling" {
+  cluster_name            = "Shared Autoscaling"
+  spark_version           = data.databricks_spark_version.latest_lts.id
+  node_type_id            = data.databricks_node_type.smallest.id
+  autotermination_minutes = 20
+  autoscale {
+    min_workers = 1
+    max_workers = 50
+  }
+  spark_conf = {
+    "spark.databricks.io.cache.enabled" : true,
+    "spark.databricks.io.cache.maxDiskUsage" : "50g",
+    "spark.databricks.io.cache.maxMetaDataCache" : "1g"
+  }
 }
 
-# Lambda permissions
-resource "aws_lambda_permission" "allow_s3" {
-  statement_id  = "AllowExecutionFromS3Bucket"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.pdf_ingestion.function_name
-  principal     = "s3.amazonaws.com"
-  source_arn    = aws_s3_bucket.pdf_storage.arn
+resource "databricks_job" "this" {
+  name        = "Job with multiple tasks"
+  description = "This job executes multiple tasks on a shared job cluster, which will be provisioned as part of execution, and terminated once all tasks are finished."
+
+  job_cluster {
+    job_cluster_key = "j"
+    new_cluster {
+      num_workers   = 2
+      spark_version = data.databricks_spark_version.latest.id
+      node_type_id  = data.databricks_node_type.smallest.id
+    }
+  }
+
+  task {
+    task_key = "a"
+
+    new_cluster {
+      num_workers   = 1
+      spark_version = data.databricks_spark_version.latest.id
+      node_type_id  = data.databricks_node_type.smallest.id
+    }
+
+    notebook_task {
+      notebook_path = databricks_notebook.this.path
+    }
+  }
 }
 
-resource "aws_lambda_permission" "allow_api_gateway" {
-  statement_id  = "AllowExecutionFromAPIGateway"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.qa_lambda.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.qa_api.execution_arn}/*/*"
+resource "databricks_vector_search_endpoint" "this" {
+  name          = "vector-search-test"
+  endpoint_type = "STANDARD"
 }
 
-# Data sources for packaging
-data "archive_file" "pdf_ingestion_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/../lambda-ingestion/src"
-  output_path = "pdf-ingestion-lambda.zip"
+resource "databricks_vector_search_index" "sync" {
+  name          = "main.default.vector_search_index"
+  endpoint_name = databricks_vector_search_endpoint.this.name
+  primary_key   = "id"
+  index_type    = "DELTA_SYNC"
+  delta_sync_index_spec {
+    source_table  = "main.default.source_table"
+    pipeline_type = "TRIGGERED"
+    embedding_source_columns {
+      name                          = "text"
+      embedding_model_endpoint_name = databricks_model_serving.this.name
+    }
+  }
 }
 
-data "archive_file" "qa_lambda_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/../lambda-qa-dotnet/src/bin/Release/net8.0/publish"
-  output_path = "qa-lambda.zip"
-}
-
-data "aws_caller_identity" "current" {}
-
-# Outputs
-output "s3_bucket_name" {
-  value = aws_s3_bucket.pdf_storage.bucket
-}
-
-output "opensearch_endpoint" {
-  value = aws_opensearch_domain.handbook_search.endpoint
-}
-
-output "api_gateway_url" {
-  value = "${aws_api_gateway_deployment.qa_deployment.invoke_url}/ask"
-}
-
-output "sns_topic_arn" {
-  value = aws_sns_topic.qa_responses.arn
+output "databricks_host" {
+  value = "https://${azurerm_databricks_workspace.this.workspace_url}/"
 }
