@@ -7,7 +7,7 @@ data "databricks_spark_version" "latest_lts" {
 }
 
 resource "databricks_cluster" "shared_autoscaling_cluster" {
-  cluster_name            = "${var.project_name}-shared-autoscaling-cluster"
+  cluster_name            = "${var.project_name}_shared_autoscaling_cluster"
   spark_version           = data.databricks_spark_version.latest_lts.id
   node_type_id            = data.databricks_node_type.smallest.id
   autotermination_minutes = 10
@@ -51,17 +51,17 @@ resource "databricks_cluster" "shared_autoscaling_cluster" {
 # }
 
 # resource "databricks_vector_search_endpoint" "this" {
-#   name          = "vector-search-test"
+#   name          = "${var.project_name}_vector_search_endpoint"
 #   endpoint_type = "STANDARD"
 # }
 
 # resource "databricks_vector_search_index" "sync" {
-#   name          = "main.default.vector_search_index"
+#   name          = "${var.project_name}_sync_index"
 #   endpoint_name = databricks_vector_search_endpoint.this.name
 #   primary_key   = "id"
 #   index_type    = "DELTA_SYNC"
 #   delta_sync_index_spec {
-#     source_table  = "main.default.source_table"
+#     source_table  = "${var.project_name}_sync_table"
 #     pipeline_type = "TRIGGERED"
 #     embedding_source_columns {
 #       name                          = "text"

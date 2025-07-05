@@ -39,7 +39,7 @@ variable "region" {
 
 variable "project_name" {
   type        = string
-  default     = "databricks_ai"
+  default     = "databricks-ai"
   description = "Name of the project."
 }
 
@@ -48,7 +48,7 @@ module "azurerm_infrastructure" {
 
   region       = var.region
   project_name = var.project_name
-  no_public_ip = tr
+  no_public_ip = true
 }
 
 module "databricks_workspace" {

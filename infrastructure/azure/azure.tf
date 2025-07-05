@@ -87,11 +87,11 @@ resource "azurerm_subnet_network_security_group_association" "dbx_private_nsg_as
 }
 
 resource "azurerm_databricks_workspace" "dbx_workspace" {
-  name                        = "${var.project_name}-workspace"
+  name                        = "${var.project_name}_workspace"
   resource_group_name         = azurerm_resource_group.dbx_group.name
   location                    = azurerm_resource_group.dbx_group.location
-  sku                         = "standard"
-  managed_resource_group_name = "${var.project_name}-workspace-rg"
+  sku                         = "premium"
+  managed_resource_group_name = "${var.project_name}_workspace_rg"
   tags                        = {
     environment = var.environment
     project     = var.project_name
