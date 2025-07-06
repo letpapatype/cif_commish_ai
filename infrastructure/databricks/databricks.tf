@@ -75,6 +75,15 @@ resource "databricks_metastore_assignment" "this" {
   workspace_id = databricks_workspace.dbx_workspace.id
 }
 
+resource "databricks_metastore_data_access" "this" {
+  metastore_id = databricks_metastore.this.id
+  name = "${var.project_name}_metastore_data_access"
+  azure_managed_identity {
+    access_connector_id = var.access_connector_id
+  }
+  is_default = true
+}
+
 resource "databricks_cluster" "shared_autoscaling_cluster" {
   cluster_name            = "${var.project_name}_shared_autoscaling_cluster"
   spark_version           = data.databricks_spark_version.latest_lts.id
