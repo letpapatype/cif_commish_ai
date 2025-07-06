@@ -56,9 +56,18 @@ module "databricks_workspace" {
   project_name = var.project_name
   region = var.region
   databricks_workspace_id = module.azurerm_infrastructure.databricks_workspace_id
+  storage_account_name = module.azurerm_infrastructure.unity_catalog_storage_account_name
+  access_connector_id = module.azurerm_infrastructure.unity_catalog_access_connector_id
+  providers = {
+    databricks = databricks
+  }
   depends_on = [module.azurerm_infrastructure]
 }
 
 output "databricks_host" {
   value = module.azurerm_infrastructure.databricks_host
+}
+
+output "sql_table_name" {
+  value = module.databricks_workspace.sql_table_id
 }

@@ -13,3 +13,14 @@ variable "databricks_workspace_id" {
   type        = string
   description = "ID of the Databricks workspace."
 }
+
+variable "storage_account_name" {
+  type        = string
+  description = "Name of the storage account for Unity Catalog."
+}
+
+variable "access_connector_id" {
+  type        = string
+  description = "ID of the Databricks access connector for Unity Catalog."
+}
+

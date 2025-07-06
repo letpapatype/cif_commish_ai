@@ -86,6 +86,74 @@ resource "azurerm_subnet_network_security_group_association" "dbx_private_nsg_as
   network_security_group_id = azurerm_network_security_group.dbx_nsg.id
 }
 
+# Storage account for Unity Catalog
+resource "azurerm_storage_account" "unity_catalog" {
+  name                     = "unitycatalog${random_string.naming.result}"
+  resource_group_name      = azurerm_resource_group.dbx_group.name
+  location                 = azurerm_resource_group.dbx_group.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  account_kind             = "StorageV2"
+  is_hns_enabled           = true # Required for Data Lake Storage Gen2
+  
+  tags = {
+    environment = var.environment
+    project     = var.project_name
+    purpose     = "unity-catalog"
+  }
+}
+
+# Container for Unity Catalog
+resource "azurerm_storage_container" "unity_catalog" {
+  name                 = "unity-catalog"
+  storage_account_id   = azurerm_storage_account.unity_catalog.id
+  container_access_type = "private"
+}
+
+# Create the catalogs directory structure
+resource "azurerm_storage_blob" "catalogs_directory" {
+  name                   = "catalogs/.keep"
+  storage_account_name   = azurerm_storage_account.unity_catalog.name
+  storage_container_name = azurerm_storage_container.unity_catalog.name
+  type                   = "Block"
+  source_content         = "# Directory placeholder for Unity Catalog"
+}
+
+# Create the genaiwork catalog directory
+resource "azurerm_storage_blob" "genaiwork_directory" {
+  name                   = "catalogs/docs/.keep"
+  storage_account_name   = azurerm_storage_account.unity_catalog.name
+  storage_container_name = azurerm_storage_container.unity_catalog.name
+  type                   = "Block"
+  source_content         = "# Directory placeholder for genaiwork catalog"
+  
+  depends_on = [azurerm_storage_blob.catalogs_directory]
+}
+
+# Databricks Access Connector for Unity Catalog
+resource "azurerm_databricks_access_connector" "unity_catalog" {
+  name                = "${var.project_name}-access-connector"
+  resource_group_name = azurerm_resource_group.dbx_group.name
+  location            = azurerm_resource_group.dbx_group.location
+  
+  identity {
+    type = "SystemAssigned"
+  }
+  
+  tags = {
+    environment = var.environment
+    project     = var.project_name
+    purpose     = "unity-catalog"
+  }
+}
+
+# Assign Storage Blob Data Contributor role to the access connector
+resource "azurerm_role_assignment" "unity_catalog_storage" {
+  scope                = azurerm_storage_account.unity_catalog.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_databricks_access_connector.unity_catalog.identity[0].principal_id
+}
+
 resource "azurerm_databricks_workspace" "dbx_workspace" {
   name                        = "${var.project_name}_workspace"
   resource_group_name         = azurerm_resource_group.dbx_group.name
@@ -108,3 +176,4 @@ resource "azurerm_databricks_workspace" "dbx_workspace" {
     storage_account_sku_name = "Standard_LRS"
   }
 }
+
