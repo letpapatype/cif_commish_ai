@@ -38,11 +38,11 @@ resource "databricks_storage_credential" "unity_catalog_credential" {
 
 resource "databricks_schema" "this" {
   catalog_name = databricks_catalog.this.id
-  name         = "pdfembeddings"
+  name         = "pdf"
 }
 
 resource "databricks_sql_table" "this" {
-  name         = "cifpdfembeddings"
+  name         = "cifembeddings"
   table_type   = "MANAGED"
   catalog_name = databricks_catalog.this.id
   schema_name  = databricks_schema.this.name
@@ -62,6 +62,17 @@ resource "databricks_sql_table" "this" {
     name = "created_at"
     type = "TIMESTAMP"
   }
+}
+
+// create a metastore for the storage account as the storage root and assing it to the workspace
+resource "databricks_metastore" "this" {
+  name = "${var.project_name}_metastore"
+  storage_root = "abfss://unity-catalog@${var.storage_account_name}.dfs.core.windows.net/catalogs/docs"
+}
+
+resource "databricks_metastore_assignment" "this" {
+  metastore_id = databricks_metastore.this.id
+  workspace_id = databricks_workspace.dbx_workspace.id
 }
 
 resource "databricks_cluster" "shared_autoscaling_cluster" {
@@ -114,7 +125,7 @@ resource "databricks_vector_search_endpoint" "this" {
 }
 
 resource "databricks_vector_search_index" "sync" {
-  name          = "docs.pdfembeddings.cifpdfembeddings"
+  name          = "${databricks_catalog.this.name}.${databricks_schema.this.name}.${databricks_sql_table.this.name}"
   endpoint_name = databricks_vector_search_endpoint.this.name
   primary_key   = "id"
   index_type    = "DELTA_SYNC"
