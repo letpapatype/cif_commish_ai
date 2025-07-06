@@ -11,7 +11,7 @@ resource "databricks_catalog" "this" {
   comment = "Catalog for AI and PDF embedding workspace"
   
   # Add storage location for managed catalog
-  storage_root = "abfss://unity-catalog@${var.storage_account_name}.dfs.core.windows.net/catalogs/docs"
+  storage_root = databricks_external_location.unity_catalog_location.url
 
   depends_on = [databricks_external_location.unity_catalog_location]
 }
@@ -67,12 +67,12 @@ resource "databricks_sql_table" "this" {
 // create a metastore for the storage account as the storage root and assing it to the workspace
 resource "databricks_metastore" "this" {
   name = "${var.project_name}_metastore"
-  storage_root = "abfss://unity-catalog@${var.storage_account_name}.dfs.core.windows.net/catalogs/docs"
+  storage_root = databricks_external_location.unity_catalog_location.url
 }
 
 resource "databricks_metastore_assignment" "this" {
   metastore_id = databricks_metastore.this.id
-  workspace_id = databricks_workspace.dbx_workspace.id
+  workspace_id = var.databricks_workspace_id
 }
 
 resource "databricks_metastore_data_access" "this" {
